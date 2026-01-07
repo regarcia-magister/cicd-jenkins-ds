@@ -1,7 +1,9 @@
 pipeline {
   agent any
 
-  options { timestamps() }
+  options {
+    timestamps()
+  }
 
   environment {
     DOCKERHUB_REPO = "regarciaceste/cicd-jenkins-ds"
@@ -43,6 +45,7 @@ pipeline {
           sh '''
             set -e
             docker run --rm \
+              --network cicd-net \
               -v jenkins_home:/var/jenkins_home \
               -w "$WORKSPACE" \
               -e SONAR_HOST_URL \
@@ -55,11 +58,8 @@ pipeline {
 
     stage('Build Docker') {
       steps {
-        sh '''
-          set -e
-          docker build -t "$IMAGE" .
-          docker tag "$IMAGE" "$DOCKERHUB_REPO:latest"
-        '''
+        sh 'docker build -t "$IMAGE" .'
+        sh 'docker tag "$IMAGE" "$DOCKERHUB_REPO:latest"'
       }
     }
 
@@ -71,8 +71,8 @@ pipeline {
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v trivy-cache:/root/.cache/ \
             aquasec/trivy:latest image \
-              --exit-code 1 --severity HIGH,CRITICAL \
-              "$IMAGE"
+            --exit-code 1 --severity HIGH,CRITICAL \
+            "$IMAGE"
         '''
       }
     }
@@ -80,21 +80,15 @@ pipeline {
     stage('Login DockerHub') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
-          sh '''
-            set -e
-            echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
-          '''
+          sh 'echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin'
         }
       }
     }
 
     stage('Push DockerHub') {
       steps {
-        sh '''
-          set -e
-          docker push "$IMAGE"
-          docker push "$DOCKERHUB_REPO:latest"
-        '''
+        sh 'docker push "$IMAGE"'
+        sh 'docker push "$DOCKERHUB_REPO:latest"'
       }
     }
   }
@@ -105,5 +99,6 @@ pipeline {
     }
   }
 }
+
 
 
