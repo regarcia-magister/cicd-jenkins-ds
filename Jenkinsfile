@@ -26,10 +26,8 @@ pipeline {
     stage('Tests') {
       steps {
         sh '''
-          set -e
           docker run --rm \
-            -v jenkins_home:/var/jenkins_home \
-            -w "$WORKSPACE" \
+            -v "$PWD:/work" -w /work \
             python:3.11-slim bash -lc "
               pip install -U pip &&
               pip install -r requirements.txt &&
@@ -42,7 +40,13 @@ pipeline {
     stage('SonarQube (quality)') {
       steps {
         withSonarQubeEnv("${SONARQUBE_ENV}") {
-          sh 'sonar-scanner'
+          sh '''
+            docker run --rm \
+              -v "$PWD:/usr/src" -w /usr/src \
+              -e SONAR_HOST_URL \
+              -e SONAR_AUTH_TOKEN \
+              sonarsource/sonar-scanner-cli:latest
+          '''
         }
       }
     }
@@ -57,7 +61,10 @@ pipeline {
     stage('Trivy (security image)') {
       steps {
         sh '''
-          docker run --rm aquasec/trivy:latest image \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v trivy-cache:/root/.cache/ \
+            aquasec/trivy:latest image \
             --exit-code 1 --severity HIGH,CRITICAL \
             "$IMAGE"
         '''
