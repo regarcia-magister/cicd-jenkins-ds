@@ -1,51 +1,85 @@
 pipeline {
   agent any
 
+  options {
+    timestamps()
+  }
+
   environment {
-    SONARQUBE_SERVER = 'sonarqube-local'
-    DOCKERHUB_REPO   = 'regarciaceste/cicd-jenkins-ds'
+    DOCKERHUB_REPO = "regarciaceste/cicd-jenkins-ds"
+    SONARQUBE_ENV  = "SonarQube"
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout scm
-      }
-    }
-
-    stage('Install deps') {
-      steps {
-        sh 'python -m pip install --upgrade pip'
-        sh 'pip install -r requirements.txt'
+        script {
+          env.SHORT_SHA = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+          env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.SHORT_SHA}"
+          env.IMAGE     = "${env.DOCKERHUB_REPO}:${env.IMAGE_TAG}"
+        }
       }
     }
 
     stage('Tests') {
       steps {
-        sh 'pytest -q'
+        sh '''
+          docker run --rm -v "$PWD:/work" -w /work python:3.11-slim bash -lc "
+            pip install -U pip &&
+            pip install -r requirements.txt &&
+            pytest -q
+          "
+        '''
       }
     }
 
-    stage('SonarQube') {
+    stage('SonarQube (quality)') {
       steps {
-        withSonarQubeEnv("${SONARQUBE_SERVER}") {
+        withSonarQubeEnv("${SONARQUBE_ENV}") {
           sh 'sonar-scanner'
         }
       }
     }
 
-    stage('Trivy (fs)') {
+    stage('Build Docker') {
       steps {
-        sh 'docker run --rm -v "$PWD:/work" aquasec/trivy:latest fs --exit-code 0 --severity HIGH,CRITICAL /work'
+        sh 'docker build -t "$IMAGE" .'
+        sh 'docker tag "$IMAGE" "$DOCKERHUB_REPO:latest"'
       }
     }
 
-    stage('Docker build') {
+    stage('Trivy (security image)') {
       steps {
-        sh 'docker build -t cicd-jenkins-ds:ci .'
+        sh '''
+          docker run --rm aquasec/trivy:latest image \
+            --exit-code 1 --severity HIGH,CRITICAL \
+            "$IMAGE"
+        '''
       }
     }
 
-    // Push lo activamos cuando confirmemos credenciales en Jenkins
+    stage('Login DockerHub') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
+          sh 'echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin'
+        }
+      }
+    }
+
+    stage('Push DockerHub') {
+      steps {
+        sh 'docker push "$IMAGE"'
+        sh 'docker push "$DOCKERHUB_REPO:latest"'
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'docker logout || true'
+    }
   }
 }
+
