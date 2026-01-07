@@ -26,11 +26,15 @@ pipeline {
     stage('Tests') {
       steps {
         sh '''
-          docker run --rm -v "$PWD:/work" -w /work python:3.11-slim bash -lc "
-            pip install -U pip &&
-            pip install -r requirements.txt &&
-            pytest -q
-          "
+          set -e
+          docker run --rm \
+            -v jenkins_home:/var/jenkins_home \
+            -w "$WORKSPACE" \
+            python:3.11-slim bash -lc "
+              pip install -U pip &&
+              pip install -r requirements.txt &&
+              pytest -q
+            "
         '''
       }
     }
