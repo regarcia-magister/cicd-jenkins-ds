@@ -1,9 +1,7 @@
 pipeline {
   agent any
 
-  options {
-    timestamps()
-  }
+  options { timestamps() }
 
   environment {
     DOCKERHUB_REPO = "regarciaceste/cicd-jenkins-ds"
@@ -26,8 +24,10 @@ pipeline {
     stage('Tests') {
       steps {
         sh '''
+          set -e
           docker run --rm \
-            -v "$PWD:/work" -w /work \
+            -v jenkins_home:/var/jenkins_home \
+            -w "$WORKSPACE" \
             python:3.11-slim bash -lc "
               pip install -U pip &&
               pip install -r requirements.txt &&
@@ -41,8 +41,10 @@ pipeline {
       steps {
         withSonarQubeEnv("${SONARQUBE_ENV}") {
           sh '''
+            set -e
             docker run --rm \
-              -v "$PWD:/usr/src" -w /usr/src \
+              -v jenkins_home:/var/jenkins_home \
+              -w "$WORKSPACE" \
               -e SONAR_HOST_URL \
               -e SONAR_AUTH_TOKEN \
               sonarsource/sonar-scanner-cli:latest
@@ -53,20 +55,24 @@ pipeline {
 
     stage('Build Docker') {
       steps {
-        sh 'docker build -t "$IMAGE" .'
-        sh 'docker tag "$IMAGE" "$DOCKERHUB_REPO:latest"'
+        sh '''
+          set -e
+          docker build -t "$IMAGE" .
+          docker tag "$IMAGE" "$DOCKERHUB_REPO:latest"
+        '''
       }
     }
 
     stage('Trivy (security image)') {
       steps {
         sh '''
+          set -e
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v trivy-cache:/root/.cache/ \
             aquasec/trivy:latest image \
-            --exit-code 1 --severity HIGH,CRITICAL \
-            "$IMAGE"
+              --exit-code 1 --severity HIGH,CRITICAL \
+              "$IMAGE"
         '''
       }
     }
@@ -74,15 +80,21 @@ pipeline {
     stage('Login DockerHub') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
-          sh 'echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin'
+          sh '''
+            set -e
+            echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+          '''
         }
       }
     }
 
     stage('Push DockerHub') {
       steps {
-        sh 'docker push "$IMAGE"'
-        sh 'docker push "$DOCKERHUB_REPO:latest"'
+        sh '''
+          set -e
+          docker push "$IMAGE"
+          docker push "$DOCKERHUB_REPO:latest"
+        '''
       }
     }
   }
@@ -93,4 +105,5 @@ pipeline {
     }
   }
 }
+
 
