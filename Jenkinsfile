@@ -50,7 +50,9 @@ pipeline {
               -w "$WORKSPACE" \
               -e SONAR_HOST_URL \
               -e SONAR_AUTH_TOKEN \
-              sonarsource/sonar-scanner-cli:latest
+              sonarsource/sonar-scanner-cli:latest \
+              -Dsonar.host.url="$SONAR_HOST_URL" \
+              -Dsonar.login="$SONAR_AUTH_TOKEN"
           '''
         }
       }
